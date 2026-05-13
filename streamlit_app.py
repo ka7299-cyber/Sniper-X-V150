@@ -15,21 +15,21 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 頁面配置
-st.set_page_config(page_title="Sniper X V150 (Chip Probe)", layout="wide")
+st.set_page_config(page_title="Sniper X V151 (Pro Chart)", layout="wide")
 
-# UI 魔法：防止文字切斷
+# UI 魔法：防止文字切斷 & 縮小 Metric 字體
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] { font-size: 1.15rem !important; }
+    [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
     [data-testid="stMetricLabel"] { font-size: 0.85rem !important; }
-    .chip-box { padding: 10px; border-radius: 5px; background-color: #f0f2f6; margin-bottom: 10px; }
+    .stMetric { border: 1px solid #f0f2f6; padding: 5px; border-radius: 5px; }
     </style>
     """, unsafe_allow_html=True)
 
 # ==============================================
 # 1. 籌碼探針引擎 (比照 V75 智慧補位邏輯)
 # ==============================================
-class ChipCrawlerV150:
+class ChipCrawlerV151:
     def __init__(self, stock_id, is_otc=False):
         self.stock_id = str(stock_id).strip()
         self.is_otc = is_otc 
@@ -138,7 +138,7 @@ TW_STRATEGIES = {
     '9939': (17, 57)
 }
 
-TW_NAMES = {k: f"大師鎖定" for k in TW_STRATEGIES.keys()} # 簡化名稱
+TW_NAMES = {k: "大師鎖定" for k in TW_STRATEGIES.keys()}
 
 @st.cache_data(ttl=600)
 def fetch_data_robust(ticker_symbol):
@@ -149,7 +149,7 @@ def fetch_data_robust(ticker_symbol):
     return pd.DataFrame()
 
 def find_best_ma_v2(df, start_day, end_day):
-    closes = df['Close'].values; lows = df['Low'].values; highs = df['High'].values
+    closes = df['Close'].values; lows = df['Low'].values
     best_ma = start_day; best_score = -np.inf
     for ma_len in range(start_day, end_day + 1):
         ma = df['Close'].rolling(window=ma_len).mean().values
@@ -162,9 +162,9 @@ def find_best_ma_v2(df, start_day, end_day):
     return best_ma
 
 # ==============================================
-# 3. 介面實裝
+# 3. 介面與顯示 (修正圖表瑕疵)
 # ==============================================
-st.sidebar.header("🕹️ Sniper X V150")
+st.sidebar.header("🕹️ Sniper X V151")
 market = st.sidebar.radio("市場", ["🇹🇼 台股", "🇺🇸 美股"], horizontal=True)
 
 if "🇹🇼" in market:
@@ -179,50 +179,41 @@ if "🇹🇼" in market:
         is_otc = ".TWO" in t_symbol
         p_short, p_long = TW_STRATEGIES.get(stock_id, (None, None))
         
-        with st.spinner('🎯 探針啟動中...'):
+        with st.spinner('🎯 籌碼探針偵測中...'):
             final_s = p_short if p_short else find_best_ma_v2(df, 16, 25)
             final_l = p_long if p_long else find_best_ma_v2(df, 45, 70)
-            
-            # 籌碼探針抓取
-            crawler = ChipCrawlerV150(stock_id, is_otc)
+            crawler = ChipCrawlerV151(stock_id, is_otc)
             recent_dates = df.index[-10:][::-1]
             chip_history = crawler.get_trend_summary(recent_dates, lookback_days=5)
 
-        # 頂部戰情室
         df['MS'] = df['Close'].rolling(window=final_s).mean()
         df['ML'] = df['Close'].rolling(window=final_l).mean()
-        last = df.iloc[-1]
-        ms_v, ml_v, price = last['MS'], last['ML'], last['Close']
+        last = df.iloc[-1]; ms_v = last['MS']; ml_v = last['ML']; price = last['Close']
         
+        # 頂部儀表板
         c1, c2, c3, c4 = st.columns(4)
         c1.metric("現價", f"{price:.2f}")
         c2.metric(f"短({final_s})", f"{ms_v:.2f}")
         c3.metric(f"長({final_l})", f"{ml_v:.2f}")
         
-        # 判定趨勢
+        # 趨勢判定
         if price > ms_v > ml_v: trend = "🔥 強勢多頭"
         elif ms_v >= price >= ml_v: trend = "⚠️ 多頭回檔"
-        elif ml_val >= ms_val >= last_c: trend = "❄️ 絕對空頭"
+        elif ml_v >= ms_v >= price: trend = "❄️ 絕對空頭"
         else: trend = "🧩 震盪整理"
         
-        # 籌碼邏輯增強
-        chip_status = "籌碼中性"
+        chip_msg = "🟢 籌碼中性"
         if chip_history:
             latest = chip_history[0]
             f, t, d = latest['inst'] if latest['inst'] else (0,0,0)
-            m_curr, m_chg, s_curr, s_chg = latest['margin'] if latest['margin'] else (0,0,0,0)
-            
-            if t > 500: chip_status = "🚀 投信大買"
-            elif f > 1000: chip_status = "💰 外資敲進"
-            
-            # 結合雙刀流
+            if t > 500: chip_msg = "🚀 投信大買"
+            elif f > 1000: chip_msg = "💰 外資敲進"
             if "多頭" in trend and (t > 0 or f > 0): trend = "🏆 雙刀流確認"
 
-        c4.metric("戰情/籌碼", trend, chip_status)
+        c4.metric("戰情/籌碼", trend, chip_msg)
 
-        # 籌碼詳細數據區
+        # 籌碼趨勢區
         if chip_history:
-            st.markdown("---")
             st.markdown("### 🔍 籌碼探針偵測結果 (近 5 日趨勢)")
             cols = st.columns(5)
             for i, data in enumerate(chip_history):
@@ -235,16 +226,30 @@ if "🇹🇼" in market:
                     st.write(f"投信: {t:+}")
                     st.write(f"資增: {m_c:+}")
         
-        # 圖表
+        # --- ★ 修正後的無縫雙層圖表 ★ ---
         p_df = df.tail(60).copy()
+        # 關鍵：轉為字串並移除年份，避免 Plotly 自動生成時間軸
         p_df.index = p_df.index.strftime('%m-%d')
-        fig = make_subplots(rows=1, cols=1)
-        fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K棒'))
-        fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MS'], name='短線', line=dict(color='orange')))
-        fig.add_trace(go.Scatter(x=p_df.index, y=p_df['ML'], name='長線', line=dict(color='purple')))
-        fig.update_layout(height=500, template="plotly_white", xaxis_rangeslider_visible=False)
-        st.plotly_chart(fig, use_container_width=True)
+        
+        fig = make_subplots(rows=2, cols=1, shared_xaxes=True, vertical_spacing=0.03, row_width=[0.3, 0.7])
+        
+        # K 線與均線
+        fig.add_trace(go.Candlestick(x=p_df.index, open=p_df['Open'], high=p_df['High'], low=p_df['Low'], close=p_df['Close'], name='K棒', increasing_line_color='#ef5350', decreasing_line_color='#26a69a'), row=1, col=1)
+        fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MS'], name='短線', line=dict(color='orange', width=2)), row=1, col=1)
+        fig.add_trace(go.Scatter(x=p_df.index, y=p_df['ML'], name='長線', line=dict(color='purple', width=2)), row=1, col=1)
+        
+        # 成交量
+        v_colors = ['#ef5350' if c >= o else '#26a69a' for c, o in zip(p_df['Close'], p_df['Open'])]
+        fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], marker_color=v_colors, name='成交量'), row=2, col=1)
+        
+        # ★ 關鍵設定：強制使用 category 模式移除間隙 ★
+        fig.update_layout(height=600, template="plotly_white", xaxis_rangeslider_visible=False, showlegend=False, margin=dict(l=0,r=20,t=0,b=0), hovermode="x unified")
+        fig.update_xaxes(type='category', nticks=10, row=1, col=1)
+        fig.update_xaxes(type='category', nticks=10, row=2, col=1)
+        fig.update_yaxes(side="right")
+        
+        st.plotly_chart(fig, use_container_width=True, config={'displayModeBar': False})
     else:
         st.error("代號錯誤或無資料")
 else:
-    st.info("美股暫不支援台灣籌碼探針")
+    st.info("美股模式暫不支援台股籌碼探針")
