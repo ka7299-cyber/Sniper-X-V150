@@ -15,7 +15,7 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 頁面配置
-st.set_page_config(page_title="Sniper X V155 (Pro Suite)", layout="wide")
+st.set_page_config(page_title="Sniper X V156 (Fix)", layout="wide")
 
 # UI 魔法：優化 Metric 顯示防止文字切斷
 st.markdown("""
@@ -27,7 +27,7 @@ st.markdown("""
     """, unsafe_allow_html=True)
 
 # ==============================================
-# ★ 新增功能：台灣股票名稱即時偵測器 ★
+# 台灣股票名稱即時偵測器
 # ==============================================
 @st.cache_data(ttl=86400)
 def get_taiwan_stock_name(stock_id):
@@ -42,9 +42,9 @@ def get_taiwan_stock_name(stock_id):
     return "未知股票"
 
 # ==============================================
-# 1. 籌碼探針引擎 (V155 強化防禦 + 雙資產指標)
+# 1. 籌碼探針引擎 (防禦 + 雙資產指標)
 # ==============================================
-class ChipCrawlerV155:
+class ChipCrawlerV156:
     def __init__(self, stock_id, is_otc=False):
         self.stock_id = str(stock_id).strip()
         self.is_otc = is_otc 
@@ -57,7 +57,6 @@ class ChipCrawlerV155:
             margin = self._get_margin(d)
             inst = self._get_inst(d)
             sbl = self._get_sbl(d)
-            # ★ 修正需求2：只要當天有任何主要交易所資料就收錄，不因單一欄位未出而卡死
             if margin or inst or sbl:
                 history.append({'date': d, 'margin': margin, 'inst': inst, 'sbl': sbl})
         return history
@@ -178,7 +177,7 @@ def find_best_ma_v2(df, start_day, end_day):
 # ==============================================
 # 3. 主介面邏輯
 # ==============================================
-st.sidebar.header("🕹️ Sniper X V155")
+st.sidebar.header("🕹️ Sniper X V156")
 market = st.sidebar.radio("市場", ["🇹🇼 台股", "🇺🇸 美股"], horizontal=True)
 
 if "🇹🇼" in market:
@@ -193,15 +192,13 @@ if "🇹🇼" in market:
         is_otc = ".TWO" in t_symbol
         p_short, p_long = TW_STRATEGIES.get(stock_id, (None, None))
         
-        # ★ 修正需求1：動態查詢真實名稱，確保不看錯股票 ★
         with st.spinner('🎯 正在解碼真實名稱與籌碼...'):
             resolved_name = get_taiwan_stock_name(stock_id)
             final_s = p_short if p_short else find_best_ma_v2(df, 16, 25)
             final_l = p_long if p_long else find_best_ma_v2(df, 45, 70)
             
-            # 智慧補位籌碼探針
-            crawler = BaseCrawler = ChipCrawlerV155(stock_id, is_otc)
-            recent_dates = df.index[-12:][::-1] # 擴大追蹤日期，確保湊滿 5 天
+            crawler = ChipCrawlerV156(stock_id, is_otc)
+            recent_dates = df.index[-12:][::-1] 
             chip_history = crawler.get_trend_summary(recent_dates, lookback_days=5)
 
         df['MS'] = df['Close'].rolling(window=final_s).mean()
@@ -232,18 +229,16 @@ if "🇹🇼" in market:
 
         c4.metric("戰情/籌碼", trend, chip_msg)
 
-        # 顯示解析後的中文標頭
         source_label = "👑 大師鎖定策略" if stock_id in TW_STRATEGIES else "🤖 AI 去偏誤演算法"
         st.subheader(f"📊 {resolved_name} ({t_symbol}) — {source_label}")
 
-        # 籌碼趨勢面板 (修正需求2：抗空值安全鎖)
+        # 籌碼趨勢面板
         if chip_history:
             st.markdown("### 🔍 籌碼探針偵測結果 (近 5 日趨勢)")
             cols = st.columns(5)
             for i, data in enumerate(chip_history):
                 with cols[i]:
                     d_str = data['date'].strftime('%m/%d')
-                    # 安全鎖：若當日部分欄位尚未公告，給予預設0而不報錯
                     f, t, d = data['inst'] if data['inst'] else (0,0,0)
                     m_bal, m_chg, s_bal, s_chg = data['margin'] if data['margin'] else (0,0,0,0)
                     
@@ -251,7 +246,6 @@ if "🇹🇼" in market:
                     st.write(f"外資: {f:+}")
                     st.write(f"投信: {t:+}")
                     st.write(f"資增: {m_chg:+}")
-                    # ★ 修正需求3：加開融資籌碼指標 (資餘) ★
                     st.write(f"資餘: {m_bal}") 
         else:
             st.warning("⚠️ 交易所本日維護中或盤後數據轉換中，籌碼暫時無資料。")
@@ -265,7 +259,8 @@ if "🇹🇼" in market:
         fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MS'], name='短線', line=dict(color='orange', width=2)), row=1, col=1)
         fig.add_trace(go.Scatter(x=p_df.index, y=p_df['ML'], name='長線', line=dict(color='purple', width=2)), row=1, col=1)
         
-        v_colors = ['#ef5350' if c >= o else '#26a69a' for c, o in zip(p_df['Close'], p_df['Open'])]
+        # ★ 這裡完美對齊變數名稱：v_cols ★
+        v_cols = ['#ef5350' if c >= o else '#26a69a' for c, o in zip(p_df['Close'], p_df['Open'])]
         fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], marker_color=v_cols, name='成交量'), row=2, col=1)
         
         fig.update_layout(height=550, template="plotly_white", xaxis_rangeslider_visible=False, showlegend=False, margin=dict(l=0,r=20,t=5,b=0), hovermode="x unified")
