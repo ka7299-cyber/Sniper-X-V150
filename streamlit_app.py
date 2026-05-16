@@ -15,12 +15,12 @@ import urllib3
 urllib3.disable_warnings(urllib3.exceptions.InsecureRequestWarning)
 
 # 頁面配置
-st.set_page_config(page_title="Sniper X V156 (Fix)", layout="wide")
+st.set_page_config(page_title="Sniper X V160 (Ultimate Intel)", layout="wide")
 
 # UI 魔法：優化 Metric 顯示防止文字切斷
 st.markdown("""
     <style>
-    [data-testid="stMetricValue"] { font-size: 1.1rem !important; }
+    [data-testid="stMetricValue"] { font-size: 1.05rem !important; }
     [data-testid="stMetricLabel"] { font-size: 0.85rem !important; }
     .stMetric { border: 1px solid #f0f2f6; padding: 5px; border-radius: 5px; }
     </style>
@@ -44,7 +44,7 @@ def get_taiwan_stock_name(stock_id):
 # ==============================================
 # 1. 籌碼探針引擎 (防禦 + 雙資產指標)
 # ==============================================
-class ChipCrawlerV156:
+class ChipCrawlerV160:
     def __init__(self, stock_id, is_otc=False):
         self.stock_id = str(stock_id).strip()
         self.is_otc = is_otc 
@@ -175,13 +175,13 @@ def find_best_ma_v2(df, start_day, end_day):
     return best_ma
 
 # ==============================================
-# 3. 主介面邏輯
+# 3. 主介面邏輯 (V160 智慧籌碼大腦優化)
 # ==============================================
-st.sidebar.header("🕹️ Sniper X V156")
+st.sidebar.header("🕹️ Sniper X V160")
 market = st.sidebar.radio("市場", ["🇹🇼 台股", "🇺🇸 美股"], horizontal=True)
 
 if "🇹🇼" in market:
-    stock_id = st.sidebar.text_input("輸入代號 (例如 1717)", "1717")
+    stock_id = st.sidebar.text_input("輸入代號 (例如 1815)", "1815")
     t_symbol = f"{stock_id}.TW"
     df = fetch_data_robust(t_symbol)
     if df.empty: 
@@ -192,12 +192,12 @@ if "🇹🇼" in market:
         is_otc = ".TWO" in t_symbol
         p_short, p_long = TW_STRATEGIES.get(stock_id, (None, None))
         
-        with st.spinner('🎯 正在解碼真實名稱與籌碼...'):
+        with st.spinner('🎯 正在發射籌碼探針...'):
             resolved_name = get_taiwan_stock_name(stock_id)
             final_s = p_short if p_short else find_best_ma_v2(df, 16, 25)
             final_l = p_long if p_long else find_best_ma_v2(df, 45, 70)
             
-            crawler = ChipCrawlerV156(stock_id, is_otc)
+            crawler = ChipCrawlerV160(stock_id, is_otc)
             recent_dates = df.index[-12:][::-1] 
             chip_history = crawler.get_trend_summary(recent_dates, lookback_days=5)
 
@@ -205,13 +205,7 @@ if "🇹🇼" in market:
         df['ML'] = df['Close'].rolling(window=final_l).mean()
         last = df.iloc[-1]; ms_v = last['MS']; ml_v = last['ML']; price = last['Close']
         
-        # 頂部戰情儀表板
-        c1, c2, c3, c4 = st.columns(4)
-        c1.metric("現價", f"{price:.2f}")
-        c2.metric(f"短({final_s})", f"{ms_v:.2f}")
-        c3.metric(f"長({final_l})", f"{ml_v:.2f}")
-        
-        # 6階段戰情判斷
+        # 6階段戰情基礎判斷
         if price > ms_v and ms_v > ml_v: trend = "🔥 強勢多頭 (抱緊)"
         elif ms_v >= price and price >= ml_v: trend = "⚠️ 多頭回檔 (買點)"
         elif ms_v >= ml_v and ml_v >= price: trend = "⚡ 跌破防線 (轉弱)"
@@ -219,20 +213,62 @@ if "🇹🇼" in market:
         elif ml_v >= ms_v and ms_v >= price: trend = "❄️ 絕對空頭 (觀望)"
         else: trend = "🧩 均線糾結 (震盪)"
         
+        # ★ V160 核心重塑：連續天數判讀演算法 (移植 V99 智慧核心) ★
+        trust_buy_streak = 0
+        foreign_buy_streak = 0
+        margin_inc_streak = 0
+        
+        if chip_history:
+            for data in chip_history:
+                if data['inst'] and data['inst'][1] > 0: trust_buy_streak += 1
+                else: break
+            for data in chip_history:
+                if data['inst'] and data['inst'][0] > 0: foreign_buy_streak += 1
+                else: break
+            for data in chip_history:
+                if data['margin'] and data['margin'][1] > 0: margin_inc_streak += 1
+                else: break
+
         chip_msg = "🟢 籌碼中性"
         if chip_history:
             latest = chip_history[0]
             f, t, d = latest['inst'] if latest['inst'] else (0,0,0)
-            if t > 500: chip_msg = "🚀 投信大買"
-            elif f > 1000: chip_msg = "💰 外資敲進"
-            if "多頭" in trend and (t > 0 or f > 0): trend = "🏆 雙刀流確認"
+            m_bal, m_chg, s_bal, s_chg = latest['margin'] if latest['margin'] else (0,0,0,0)
+            sbl_bal, sbl_chg = latest['sbl'] if latest['sbl'] else (0,0)
+            
+            # 交叉比對：外資現貨與借券 (真假買判讀)
+            if f > 0 and sbl_chg < 0:
+                chip_msg = "🚀 外資真買 (多單+回補)"
+            elif f > 0 and sbl_chg > 200:
+                chip_msg = "⚠️ 外資假買 (現貨+避險)"
+            # 連續波段解讀
+            elif trust_buy_streak >= 3:
+                chip_msg = f"🔥 投信鎖股 (連買{trust_buy_streak}日)"
+            elif foreign_buy_streak >= 3:
+                chip_msg = f"💰 外資波盤 (連買{foreign_buy_streak}日)"
+            elif margin_inc_streak >= 3 and ("空頭" in trend or "轉弱" in trend):
+                chip_msg = f"💀 散戶接刀 (資連增{margin_inc_streak}日)"
+            elif t > 400: chip_msg = "🚀 投信大買"
+            elif f > 800: chip_msg = "💰 外資敲進"
+            elif m_chg > 400 and f < -400: chip_msg = "📉 主力出貨 (散戶接手)"
 
-        c4.metric("戰情/籌碼", trend, chip_msg)
+            # 結合雙刀流決策機制
+            if ("多頭" in trend or "買點" in trend) and (t > 0 or f > 0) and "假買" not in chip_msg:
+                trend = "🏆 雙刀流：多頭確認"
+            elif ("空頭" in trend or "轉弱" in trend) and (m_chg > 0 or sbl_chg > 0):
+                trend = "💀 雙刀流：空頭警報"
+
+        # 頂部戰情儀表板
+        c1, c2, c3, c4 = st.columns(4)
+        c1.metric("現價", f"{price:.2f}")
+        c2.metric(f"短({final_s})", f"{ms_v:.2f}")
+        c3.metric(f"長({final_l})", f"{ml_v:.2f}")
+        c4.metric("戰情/籌碼判讀", trend, chip_msg)
 
         source_label = "👑 大師鎖定策略" if stock_id in TW_STRATEGIES else "🤖 AI 去偏誤演算法"
         st.subheader(f"📊 {resolved_name} ({t_symbol}) — {source_label}")
 
-        # 籌碼趨勢面板
+        # 籌碼趨勢面板 (★ 補回需求 1, 2, 3：借券與融資完整列舉 ★)
         if chip_history:
             st.markdown("### 🔍 籌碼探針偵測結果 (近 5 日趨勢)")
             cols = st.columns(5)
@@ -241,12 +277,15 @@ if "🇹🇼" in market:
                     d_str = data['date'].strftime('%m/%d')
                     f, t, d = data['inst'] if data['inst'] else (0,0,0)
                     m_bal, m_chg, s_bal, s_chg = data['margin'] if data['margin'] else (0,0,0,0)
+                    sbl_bal, sbl_chg = data['sbl'] if data['sbl'] else (0,0)
                     
                     st.markdown(f"**{d_str}**")
                     st.write(f"外資: {f:+}")
                     st.write(f"投信: {t:+}")
                     st.write(f"資增: {m_chg:+}")
-                    st.write(f"資餘: {m_bal}") 
+                    st.write(f"資餘: {m_bal}")
+                    # ★ 補回借券數據展示 ★
+                    st.write(f"借券賣出: {sbl_bal} ({sbl_chg:+})") 
         else:
             st.warning("⚠️ 交易所本日維護中或盤後數據轉換中，籌碼暫時無資料。")
         
@@ -259,7 +298,6 @@ if "🇹🇼" in market:
         fig.add_trace(go.Scatter(x=p_df.index, y=p_df['MS'], name='短線', line=dict(color='orange', width=2)), row=1, col=1)
         fig.add_trace(go.Scatter(x=p_df.index, y=p_df['ML'], name='長線', line=dict(color='purple', width=2)), row=1, col=1)
         
-        # ★ 這裡完美對齊變數名稱：v_cols ★
         v_cols = ['#ef5350' if c >= o else '#26a69a' for c, o in zip(p_df['Close'], p_df['Open'])]
         fig.add_trace(go.Bar(x=p_df.index, y=p_df['Volume'], marker_color=v_cols, name='成交量'), row=2, col=1)
         
